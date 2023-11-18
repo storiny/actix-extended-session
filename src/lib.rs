@@ -69,15 +69,16 @@
 //! ```no_run
 //! use actix_web::Error;
 //! use actix_extended_session::Session;
+//! use serde_json::Value;
 //!
 //! fn index(session: Session) -> Result<&'static str, Error> {
 //!     // access the session state
 //!     if let Some(count) = session.get::<i32>("counter")? {
 //!         println!("SESSION value: {}", count);
 //!         // modify the session state
-//!         session.insert("counter", count + 1)?;
+//!         session.insert("counter", Value::from(count + 1));
 //!     } else {
-//!         session.insert("counter", 1)?;
+//!         session.insert("counter", Value::from(1));
 //!     }
 //!
 //!     Ok("Welcome!")
@@ -147,7 +148,7 @@ pub mod storage;
 
 pub use self::{
     middleware::SessionMiddleware,
-    session::{Session, SessionGetError, SessionInsertError, SessionStatus},
+    session::{Session, SessionGetError, SessionStatus},
     session_ext::SessionExt,
 };
 
@@ -206,7 +207,7 @@ pub mod test_helpers {
             App, HttpResponse, Result,
         };
         use serde::{Deserialize, Serialize};
-        use serde_json::json;
+        use serde_json::{json, Value};
 
         use crate::{
             config::{CookieContentSecurity, PersistentSession, TtlExtensionPolicy},
@@ -237,8 +238,8 @@ pub mod test_helpers {
                             .build(),
                     )
                     .service(web::resource("/").to(|ses: Session| async move {
-                        let _ = ses.insert("user_id", 1);
-                        let _ = ses.insert("counter", 100);
+                        let _ = ses.insert("user_id", Value::from(1));
+                        let _ = ses.insert("counter", Value::from(100));
                         "test"
                     }))
                     .service(web::resource("/test/").to(|ses: Session| async move {
@@ -286,7 +287,7 @@ pub mod test_helpers {
                             .build(),
                     )
                     .service(web::resource("/").to(|ses: Session| async move {
-                        let _ = ses.insert("counter", 100);
+                        let _ = ses.insert("counter", Value::from(100));
                         "test"
                     }))
                     .service(web::resource("/test/").to(|| async move { "no-changes-in-session" })),
@@ -328,7 +329,7 @@ pub mod test_helpers {
                             .build(),
                     )
                     .service(web::resource("/").to(|ses: Session| async move {
-                        let _ = ses.insert("counter", 100);
+                        let _ = ses.insert("counter", Value::from(100));
                         "test"
                     }))
                     .service(web::resource("/test/").to(|| async move { "no-changes-in-session" })),
@@ -674,7 +675,7 @@ pub mod test_helpers {
                 .get::<i32>("counter")
                 .unwrap_or(Some(0))
                 .map_or(1, |inner| inner + 1);
-            session.insert("counter", counter)?;
+            session.insert("counter", Value::from(counter));
 
             Ok(HttpResponse::Ok().json(&IndexResponse { user_id, counter }))
         }
@@ -693,7 +694,7 @@ pub mod test_helpers {
 
         async fn login(user_id: web::Json<Identity>, session: Session) -> Result<HttpResponse> {
             let id = user_id.into_inner().user_id;
-            session.insert("user_id", &id)?;
+            session.insert("user_id", Value::from(id.clone()));
             session.renew();
 
             let counter: i32 = session
