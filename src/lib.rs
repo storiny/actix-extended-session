@@ -40,7 +40,7 @@
 //!
 //! ```no_run
 //! use actix_web::{web, App, HttpServer, HttpResponse, Error};
-//! use actix_session::{Session, SessionMiddleware, storage::RedisActorSessionStore};
+//! use actix_extended_session::{Session, SessionMiddleware, storage::RedisSessionStore};
 //! use actix_web::cookie::Key;
 //!
 //! #[actix_web::main]
@@ -53,7 +53,7 @@
 //!             // Add session management to your application using Redis for session state storage
 //!             .wrap(
 //!                 SessionMiddleware::new(
-//!                     RedisActorSessionStore::new(redis_connection_string),
+//!                     RedisSessionStore::new(redis_connection_string),
 //!                     secret_key.clone()
 //!                 )
 //!             )
@@ -69,7 +69,7 @@
 //!
 //! ```no_run
 //! use actix_web::Error;
-//! use actix_session::Session;
+//! use actix_extended_session::Session;
 //!
 //! fn index(session: Session) -> Result<&'static str, Error> {
 //!     // access the session state

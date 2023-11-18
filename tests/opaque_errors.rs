@@ -1,6 +1,6 @@
 use std::{collections::HashMap, convert::TryInto};
 
-use actix_session::{
+use actix_extended_session::{
     storage::{LoadError, SaveError, SessionKey, SessionStore, UpdateError},
     Session, SessionMiddleware,
 };

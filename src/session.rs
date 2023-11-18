@@ -23,7 +23,7 @@ use serde::{de::DeserializeOwned, Serialize};
 /// request handlers and it will be automatically extracted from the incoming request.
 ///
 /// ```
-/// use actix_session::Session;
+/// use actix_extended_session::Session;
 ///
 /// async fn index(session: Session) -> actix_web::Result<&'static str> {
 ///     // access session data
@@ -261,7 +261,7 @@ impl Session {
 /// # Examples
 /// ```
 /// # use actix_web::*;
-/// use actix_session::Session;
+/// use actix_extended_session::Session;
 ///
 /// #[get("/")]
 /// async fn index(session: Session) -> Result<impl Responder> {

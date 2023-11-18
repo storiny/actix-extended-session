@@ -15,7 +15,7 @@ use crate::storage::{
 ///
 /// ```no_run
 /// use actix_web::{web, App, HttpServer, HttpResponse, Error};
-/// use actix_session::{SessionMiddleware, storage::RedisSessionStore};
+/// use actix_extended_session::{SessionMiddleware, storage::RedisSessionStore};
 /// use actix_web::cookie::Key;
 ///
 /// // The secret key would usually be read from a configuration file/environment variables.
@@ -48,7 +48,7 @@ use crate::storage::{
 /// connection to Redis using the `rediss://` URL scheme:
 ///
 /// ```no_run
-/// use actix_session::{storage::RedisSessionStore};
+/// use actix_extended_session::{storage::RedisSessionStore};
 ///
 /// # actix_web::rt::System::new().block_on(async {
 /// let redis_connection_string = "rediss://127.0.0.1:6379";

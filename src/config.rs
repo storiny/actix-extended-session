@@ -101,8 +101,8 @@ impl Default for BrowserSession {
 /// # Examples
 /// ```
 /// use actix_web::cookie::time::Duration;
-/// use actix_session::SessionMiddleware;
-/// use actix_session::config::{PersistentSession, TtlExtensionPolicy};
+/// use actix_extended_session::SessionMiddleware;
+/// use actix_extended_session::config::{PersistentSession, TtlExtensionPolicy};
 ///
 /// const SECS_IN_WEEK: i64 = 60 * 60 * 24 * 7;
 ///
@@ -251,8 +251,8 @@ impl<Store: SessionStore> SessionMiddlewareBuilder<Store> {
     /// # Examples
     /// ```
     /// use actix_web::cookie::{Key, time::Duration};
-    /// use actix_session::{SessionMiddleware, config::PersistentSession};
-    /// use actix_session::storage::CookieSessionStore;
+    /// use actix_extended_session::{SessionMiddleware, config::PersistentSession};
+    /// use actix_extended_session::storage::CookieSessionStore;
     ///
     /// const SECS_IN_WEEK: i64 = 60 * 60 * 24 * 7;
     ///

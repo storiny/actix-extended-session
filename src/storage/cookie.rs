@@ -13,7 +13,7 @@ use crate::storage::{
 ///
 /// ```no_run
 /// use actix_web::{cookie::Key, web, App, HttpServer, HttpResponse, Error};
-/// use actix_session::{SessionMiddleware, storage::CookieSessionStore};
+/// use actix_extended_session::{SessionMiddleware, storage::CookieSessionStore};
 ///
 /// // The secret key would usually be read from a configuration file/environment variables.
 /// fn get_secret_key() -> Key {

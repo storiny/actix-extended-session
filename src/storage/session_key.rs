@@ -11,7 +11,7 @@ use derive_more::{Display, From};
 ///
 /// ```rust
 /// # use std::convert::TryInto;
-/// use actix_session::storage::SessionKey;
+/// use actix_extended_session::storage::SessionKey;
 ///
 /// let key: String = std::iter::repeat('a').take(4065).collect();
 /// let session_key: Result<SessionKey, _> = key.try_into();

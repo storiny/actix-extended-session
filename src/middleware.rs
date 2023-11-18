@@ -1,5 +1,11 @@
-use std::{collections::HashMap, convert::TryInto, fmt, future::Future, pin::Pin, rc::Rc};
-
+use crate::{
+    config::{
+        self, Configuration, CookieConfiguration, CookieContentSecurity, SessionMiddlewareBuilder,
+        TtlExtensionPolicy,
+    },
+    storage::{LoadError, SessionKey, SessionStore},
+    Session, SessionStatus,
+};
 use actix_utils::future::{ready, Ready};
 use actix_web::{
     body::MessageBody,
@@ -9,15 +15,7 @@ use actix_web::{
     HttpResponse,
 };
 use anyhow::Context;
-
-use crate::{
-    config::{
-        self, Configuration, CookieConfiguration, CookieContentSecurity, SessionMiddlewareBuilder,
-        TtlExtensionPolicy,
-    },
-    storage::{LoadError, SessionKey, SessionStore},
-    Session, SessionStatus,
-};
+use std::{collections::HashMap, convert::TryInto, fmt, future::Future, pin::Pin, rc::Rc};
 
 /// A middleware for session management in Actix Web applications.
 ///
@@ -47,7 +45,7 @@ use crate::{
 /// # Examples
 /// ```no_run
 /// use actix_web::{web, App, HttpServer, HttpResponse, Error};
-/// use actix_session::{Session, SessionMiddleware, storage::RedisActorSessionStore};
+/// use actix_extended_session::{Session, SessionMiddleware, storage::RedisSessionStore};
 /// use actix_web::cookie::Key;
 ///
 /// // The secret key would usually be read from a configuration file/environment variables.
@@ -65,7 +63,7 @@ use crate::{
 ///             // Add session management to your application using Redis for session state storage
 ///             .wrap(
 ///                 SessionMiddleware::new(
-///                     RedisActorSessionStore::new(redis_connection_string),
+///                     RedisSessionStore::new(redis_connection_string),
 ///                     secret_key.clone()
 ///                 )
 ///             )
@@ -80,8 +78,8 @@ use crate::{
 ///
 /// ```no_run
 /// use actix_web::{App, cookie::{Key, time}, Error, HttpResponse, HttpServer, web};
-/// use actix_session::{Session, SessionMiddleware, storage::RedisActorSessionStore};
-/// use actix_session::config::PersistentSession;
+/// use actix_extended_session::{Session, SessionMiddleware, storage::RedisSessionStore};
+/// use actix_extended_session::config::PersistentSession;
 ///
 /// // The secret key would usually be read from a configuration file/environment variables.
 /// fn get_secret_key() -> Key {
@@ -98,7 +96,7 @@ use crate::{
 ///             // Customise session length!
 ///             .wrap(
 ///                 SessionMiddleware::builder(
-///                     RedisActorSessionStore::new(redis_connection_string),
+///                     RedisSessionStore::new(redis_connection_string),
 ///                     secret_key.clone()
 ///                 )
 ///                 .session_lifecycle(

@@ -1,4 +1,4 @@
-use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
+use actix_extended_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::{
     cookie::{time::Duration, Key},
     test, web, App, Responder,
