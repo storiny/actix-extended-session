@@ -111,7 +111,7 @@ mod tests {
     #[actix_web::test]
     async fn loading_a_random_session_key_returns_deserialization_error() {
         let store = CookieSessionStore::default();
-        let session_key = generate_session_key();
+        let session_key = generate_session_key(None);
         assert!(matches!(
             store.load(&session_key).await.unwrap_err(),
             LoadError::Deserialization(_),

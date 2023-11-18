@@ -13,48 +13,9 @@ use crate::storage::{
 
 /// Use Redis as session storage backend.
 ///
-/// ```no_run
-/// use actix_web::{web, App, HttpServer, HttpResponse, Error};
-/// use actix_extended_session::{SessionMiddleware, storage::RedisSessionStore};
-/// use actix_web::cookie::Key;
-///
-/// // The secret key would usually be read from a configuration file/environment variables.
-/// fn get_secret_key() -> Key {
-///     # todo!()
-///     // [...]
-/// }
-///
-/// #[actix_web::main]
-/// async fn main() -> std::io::Result<()> {
-///     let secret_key = get_secret_key();
-///     let redis_connection_string = "redis://127.0.0.1:6379";
-///     let store = RedisSessionStore::new(redis_connection_string).await.unwrap();
-///
-///     HttpServer::new(move ||
-///             App::new()
-///             .wrap(SessionMiddleware::new(
-///                 store.clone(),
-///                 secret_key.clone()
-///             ))
-///             .default_service(web::to(|| HttpResponse::Ok())))
-///         .bind(("127.0.0.1", 8080))?
-///         .run()
-///         .await
-/// }
-/// ```
-///
 /// # TLS support
 /// Add the `redis-rs-tls-session` feature flag to enable TLS support. You can then establish a TLS
 /// connection to Redis using the `rediss://` URL scheme:
-///
-/// ```no_run
-/// use actix_extended_session::{storage::RedisSessionStore};
-///
-/// # actix_web::rt::System::new().block_on(async {
-/// let redis_connection_string = "rediss://127.0.0.1:6379";
-/// let store = RedisSessionStore::new(redis_connection_string).await.unwrap();
-/// # })
-/// ```
 ///
 /// # Implementation notes
 /// `RedisSessionStore` leverages [`redis-rs`] as Redis client.
@@ -156,10 +117,11 @@ impl SessionStore for RedisSessionStore {
         session_state: SessionState,
         ttl: &Duration,
     ) -> Result<SessionKey, SaveError> {
+        let user_id = session_state.get("user_id");
         let body = serde_json::to_string(&session_state)
             .map_err(Into::into)
             .map_err(SaveError::Serialization)?;
-        let session_key = generate_session_key();
+        let session_key = generate_session_key(user_id.and_then(|value| Some(value.to_string())));
         let cache_key = (self.configuration.cache_keygen)(session_key.as_ref());
 
         self.execute_command(redis::cmd("SET").arg(&[
@@ -298,7 +260,7 @@ mod tests {
     use crate::test_helpers::acceptance_test_suite;
 
     async fn redis_store() -> RedisSessionStore {
-        RedisSessionStore::new("redis://127.0.0.1:6379")
+        RedisSessionStore::new("redis://127.0.0.1:7001")
             .await
             .unwrap()
     }
@@ -312,14 +274,14 @@ mod tests {
     #[actix_web::test]
     async fn loading_a_missing_session_returns_none() {
         let store = redis_store().await;
-        let session_key = generate_session_key();
+        let session_key = generate_session_key(None);
         assert!(store.load(&session_key).await.unwrap().is_none());
     }
 
     #[actix_web::test]
     async fn loading_an_invalid_session_state_returns_deserialization_error() {
         let store = redis_store().await;
-        let session_key = generate_session_key();
+        let session_key = generate_session_key(None);
         store
             .client
             .clone()
@@ -335,7 +297,7 @@ mod tests {
     #[actix_web::test]
     async fn updating_of_an_expired_state_is_handled_gracefully() {
         let store = redis_store().await;
-        let session_key = generate_session_key();
+        let session_key = generate_session_key(None);
         let initial_session_key = session_key.as_ref().to_owned();
         let updated_session_key = store
             .update(session_key, HashMap::new(), &time::Duration::seconds(1))

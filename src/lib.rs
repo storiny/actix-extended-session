@@ -40,20 +40,19 @@
 //!
 //! ```no_run
 //! use actix_web::{web, App, HttpServer, HttpResponse, Error};
-//! use actix_extended_session::{Session, SessionMiddleware, storage::RedisSessionStore};
+//! use actix_extended_session::{Session, SessionMiddleware, storage::CookieSessionStore};
 //! use actix_web::cookie::Key;
 //!
 //! #[actix_web::main]
 //! async fn main() -> std::io::Result<()> {
 //!     // The secret key would usually be read from a configuration file/environment variables.
 //!     let secret_key = Key::generate();
-//!     let redis_connection_string = "127.0.0.1:6379";
 //!     HttpServer::new(move ||
 //!             App::new()
 //!             // Add session management to your application using Redis for session state storage
 //!             .wrap(
 //!                 SessionMiddleware::new(
-//!                     RedisSessionStore::new(redis_connection_string),
+//!                     CookieSessionStore::default(),
 //!                     secret_key.clone()
 //!                 )
 //!             )
@@ -238,6 +237,7 @@ pub mod test_helpers {
                             .build(),
                     )
                     .service(web::resource("/").to(|ses: Session| async move {
+                        let _ = ses.insert("user_id", 1);
                         let _ = ses.insert("counter", 100);
                         "test"
                     }))

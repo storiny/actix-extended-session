@@ -45,7 +45,7 @@ use std::{collections::HashMap, convert::TryInto, fmt, future::Future, pin::Pin,
 /// # Examples
 /// ```no_run
 /// use actix_web::{web, App, HttpServer, HttpResponse, Error};
-/// use actix_extended_session::{Session, SessionMiddleware, storage::RedisSessionStore};
+/// use actix_extended_session::{Session, SessionMiddleware, storage::CookieSessionStore};
 /// use actix_web::cookie::Key;
 ///
 /// // The secret key would usually be read from a configuration file/environment variables.
@@ -57,13 +57,12 @@ use std::{collections::HashMap, convert::TryInto, fmt, future::Future, pin::Pin,
 /// #[actix_web::main]
 /// async fn main() -> std::io::Result<()> {
 ///     let secret_key = get_secret_key();
-///     let redis_connection_string = "127.0.0.1:6379";
 ///     HttpServer::new(move ||
 ///             App::new()
 ///             // Add session management to your application using Redis for session state storage
 ///             .wrap(
 ///                 SessionMiddleware::new(
-///                     RedisSessionStore::new(redis_connection_string),
+///                     CookieSessionStore::default(),
 ///                     secret_key.clone()
 ///                 )
 ///             )
@@ -78,7 +77,7 @@ use std::{collections::HashMap, convert::TryInto, fmt, future::Future, pin::Pin,
 ///
 /// ```no_run
 /// use actix_web::{App, cookie::{Key, time}, Error, HttpResponse, HttpServer, web};
-/// use actix_extended_session::{Session, SessionMiddleware, storage::RedisSessionStore};
+/// use actix_extended_session::{Session, SessionMiddleware, storage::CookieSessionStore};
 /// use actix_extended_session::config::PersistentSession;
 ///
 /// // The secret key would usually be read from a configuration file/environment variables.
@@ -90,13 +89,12 @@ use std::{collections::HashMap, convert::TryInto, fmt, future::Future, pin::Pin,
 /// #[actix_web::main]
 /// async fn main() -> std::io::Result<()> {
 ///     let secret_key = get_secret_key();
-///     let redis_connection_string = "127.0.0.1:6379";
 ///     HttpServer::new(move ||
 ///             App::new()
 ///             // Customise session length!
 ///             .wrap(
 ///                 SessionMiddleware::builder(
-///                     RedisSessionStore::new(redis_connection_string),
+///                     CookieSessionStore::default(),
 ///                     secret_key.clone()
 ///                 )
 ///                 .session_lifecycle(
@@ -223,7 +221,7 @@ where
 
             match session_key {
                 None => {
-                    // we do not create an entry in the session store if there is no state attached
+                    // We do not create an entry in the session store if there is no state attached
                     // to a fresh session
                     if !session_state.is_empty() {
                         let session_key = storage_backend

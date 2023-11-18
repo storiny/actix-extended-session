@@ -17,7 +17,7 @@ use derive_more::{Display, From};
 /// let session_key: Result<SessionKey, _> = key.try_into();
 /// assert!(session_key.is_err());
 /// ```
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Display, PartialEq, Eq)]
 pub struct SessionKey(String);
 
 impl TryFrom<String> for SessionKey {
