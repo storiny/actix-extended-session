@@ -1,34 +1,10 @@
-//! Session management for Actix Web.
+//! Extended session management for Actix Web.
 //!
-//! The HTTP protocol, at a first glance, is stateless: the client sends a request, the server
-//! parses its content, performs some processing and returns a response. The outcome is only
-//! influenced by the provided inputs (i.e. the request content) and whatever state the server
-//! queries while performing its processing.
-//!
-//! Stateless systems are easier to reason about, but they are not quite as powerful as we need them
-//! to be - e.g. how do you authenticate a user? The user would be forced to authenticate **for
-//! every single request**. That is, for example, how 'Basic' Authentication works. While it may
-//! work for a machine user (i.e. an API client), it is impractical for a person—you do not want a
-//! login prompt on every single page you navigate to!
-//!
-//! There is a solution - **sessions**. Using sessions the server can attach state to a set of
-//! requests coming from the same client. They are built on top of cookies - the server sets a
-//! cookie in the HTTP response (`Set-Cookie` header), the client (e.g. the browser) will store the
-//! cookie and play it back to the server when sending new requests (using the `Cookie` header).
-//!
-//! We refer to the cookie used for sessions as a **session cookie**. Its content is called
-//! **session key** (or **session ID**), while the state attached to the session is referred to as
-//! **session state**.
-//!
-//! `actix-session` provides an easy-to-use framework to manage sessions in applications built on
+//! `actix-extended-session` provides an easy-to-use framework to manage sessions in applications built on
 //! top of Actix Web. [`SessionMiddleware`] is the middleware underpinning the functionality
-//! provided by `actix-session`; it takes care of all the session cookie handling and instructs the
+//! provided by `actix-extended-session`; it takes care of all the session cookie handling and instructs the
 //! **storage backend** to create/delete/update the session state based on the operations performed
 //! against the active [`Session`].
-//!
-//! `actix-session` provides some built-in storage backends: ([`CookieSessionStore`],
-//! [`RedisSessionStore`], and [`RedisActorSessionStore`]) - you can create a custom storage backend
-//! by implementing the [`SessionStore`] trait.
 //!
 //! Further reading on sessions:
 //! - [RFC6265](https://datatracker.ietf.org/doc/html/rfc6265);
@@ -85,49 +61,6 @@
 //! }
 //! ```
 //!
-//! # Choosing A Backend
-//!
-//! By default, `actix-session` does not provide any storage backend to retrieve and save the state
-//! attached to your sessions. You can enable:
-//!
-//! - a purely cookie-based "backend", [`CookieSessionStore`], using the `cookie-session` feature
-//!   flag.
-//!
-//!   ```toml
-//!   [dependencies]
-//!   # ...
-//!   actix-session = { version = "...", features = ["cookie-session"] }
-//!   ```
-//!
-//! - a Redis-based backend via [`actix-redis`](https://docs.rs/actix-redis),
-//!   [`RedisActorSessionStore`], using the `redis-actor-session` feature flag.
-//!
-//!   ```toml
-//!   [dependencies]
-//!   # ...
-//!   actix-session = { version = "...", features = ["redis-actor-session"] }
-//!   ```
-//!
-//! - a Redis-based backend via [`redis-rs`](https://docs.rs/redis-rs), [`RedisSessionStore`], using
-//!   the `redis-rs-session` feature flag.
-//!
-//!   ```toml
-//!   [dependencies]
-//!   # ...
-//!   actix-session = { version = "...", features = ["redis-rs-session"] }
-//!   ```
-//!
-//!   Add the `redis-rs-tls-session` feature flag if you want to connect to Redis using a secured
-//!   connection:
-//!
-//!   ```toml
-//!   [dependencies]
-//!   # ...
-//!   actix-session = { version = "...", features = ["redis-rs-session", "redis-rs-tls-session"] }
-//!   ```
-//!
-//! You can implement your own session storage backend using the [`SessionStore`] trait.
-//!
 //! [`SessionStore`]: storage::SessionStore
 //! [`CookieSessionStore`]: storage::CookieSessionStore
 //! [`RedisSessionStore`]: storage::RedisSessionStore
@@ -154,9 +87,8 @@ pub use self::{
 
 #[cfg(test)]
 pub mod test_helpers {
+    use crate::storage::SessionStore;
     use actix_web::cookie::Key;
-
-    use crate::{config::CookieContentSecurity, storage::SessionStore};
 
     /// Generate a random cookie signing/encryption key.
     pub fn key() -> Key {
@@ -175,27 +107,11 @@ pub mod test_helpers {
         Store: SessionStore + 'static,
         F: Fn() -> Store + Clone + Send + 'static,
     {
-        for policy in &[
-            CookieContentSecurity::Signed,
-            CookieContentSecurity::Private,
-        ] {
-            println!("Using {policy:?} as cookie content security policy.");
-            acceptance_tests::basic_workflow(store_builder.clone(), *policy).await;
-            acceptance_tests::expiration_is_refreshed_on_changes(store_builder.clone(), *policy)
-                .await;
-            acceptance_tests::expiration_is_always_refreshed_if_configured_to_refresh_on_every_request(
-                store_builder.clone(),
-                *policy,
-            )
-            .await;
-            acceptance_tests::complex_workflow(
-                store_builder.clone(),
-                is_invalidation_supported,
-                *policy,
-            )
-            .await;
-            acceptance_tests::guard(store_builder.clone(), *policy).await;
-        }
+        acceptance_tests::basic_workflow(store_builder.clone()).await;
+        acceptance_tests::expiration_is_refreshed_on_changes(store_builder.clone()).await;
+        acceptance_tests::complex_workflow(store_builder.clone(), is_invalidation_supported).await;
+        acceptance_tests::lifecycle(store_builder.clone()).await;
+        acceptance_tests::guard(store_builder.clone()).await;
     }
 
     mod acceptance_tests {
@@ -209,17 +125,13 @@ pub mod test_helpers {
         use serde::{Deserialize, Serialize};
         use serde_json::{json, Value};
 
+        use crate::config::SessionLifecycle;
         use crate::{
-            config::{CookieContentSecurity, PersistentSession, TtlExtensionPolicy},
-            storage::SessionStore,
-            test_helpers::key,
-            Session, SessionExt, SessionMiddleware,
+            storage::SessionStore, test_helpers::key, Session, SessionExt, SessionMiddleware,
         };
 
-        pub(super) async fn basic_workflow<F, Store>(
-            store_builder: F,
-            policy: CookieContentSecurity,
-        ) where
+        pub(super) async fn basic_workflow<F, Store>(store_builder: F)
+        where
             Store: SessionStore + 'static,
             F: Fn() -> Store + Clone + Send + 'static,
         {
@@ -230,16 +142,12 @@ pub mod test_helpers {
                             .cookie_path("/test/".into())
                             .cookie_name("actix-test".into())
                             .cookie_domain(Some("localhost".into()))
-                            .cookie_content_security(policy)
-                            .session_lifecycle(
-                                PersistentSession::default()
-                                    .session_ttl(time::Duration::seconds(100)),
-                            )
+                            .session_ttl(time::Duration::seconds(100))
                             .build(),
                     )
                     .service(web::resource("/").to(|ses: Session| async move {
-                        let _ = ses.insert("user_id", Value::from(1));
-                        let _ = ses.insert("counter", Value::from(100));
+                        ses.insert("user_id", Value::from(1));
+                        ses.insert("counter", Value::from(100));
                         "test"
                     }))
                     .service(web::resource("/test/").to(|ses: Session| async move {
@@ -261,13 +169,8 @@ pub mod test_helpers {
             assert_eq!(body, Bytes::from_static(b"counter: 100"));
         }
 
-        pub(super) async fn expiration_is_always_refreshed_if_configured_to_refresh_on_every_request<
-            F,
-            Store,
-        >(
-            store_builder: F,
-            policy: CookieContentSecurity,
-        ) where
+        pub(super) async fn expiration_is_refreshed_on_changes<F, Store>(store_builder: F)
+        where
             Store: SessionStore + 'static,
             F: Fn() -> Store + Clone + Send + 'static,
         {
@@ -276,60 +179,11 @@ pub mod test_helpers {
                 App::new()
                     .wrap(
                         SessionMiddleware::builder(store_builder(), key())
-                            .cookie_content_security(policy)
-                            .session_lifecycle(
-                                PersistentSession::default()
-                                    .session_ttl(session_ttl)
-                                    .session_ttl_extension_policy(
-                                        TtlExtensionPolicy::OnEveryRequest,
-                                    ),
-                            )
+                            .session_ttl(session_ttl)
                             .build(),
                     )
                     .service(web::resource("/").to(|ses: Session| async move {
-                        let _ = ses.insert("counter", Value::from(100));
-                        "test"
-                    }))
-                    .service(web::resource("/test/").to(|| async move { "no-changes-in-session" })),
-            )
-            .await;
-
-            // Create session
-            let request = test::TestRequest::get().to_request();
-            let response = app.call(request).await.unwrap();
-            let cookie_1 = response.get_cookie("id").expect("Cookie is set");
-            assert_eq!(cookie_1.max_age(), Some(session_ttl));
-
-            // Fire a request that doesn't touch the session state, check
-            // that the session cookie is present and its expiry is set to the maximum we configured.
-            let request = test::TestRequest::with_uri("/test/")
-                .cookie(cookie_1)
-                .to_request();
-            let response = app.call(request).await.unwrap();
-            let cookie_2 = response.get_cookie("id").expect("Cookie is set");
-            assert_eq!(cookie_2.max_age(), Some(session_ttl));
-        }
-
-        pub(super) async fn expiration_is_refreshed_on_changes<F, Store>(
-            store_builder: F,
-            policy: CookieContentSecurity,
-        ) where
-            Store: SessionStore + 'static,
-            F: Fn() -> Store + Clone + Send + 'static,
-        {
-            let session_ttl = time::Duration::seconds(60);
-            let app = test::init_service(
-                App::new()
-                    .wrap(
-                        SessionMiddleware::builder(store_builder(), key())
-                            .cookie_content_security(policy)
-                            .session_lifecycle(
-                                PersistentSession::default().session_ttl(session_ttl),
-                            )
-                            .build(),
-                    )
-                    .service(web::resource("/").to(|ses: Session| async move {
-                        let _ = ses.insert("counter", Value::from(100));
+                        ses.insert("counter", Value::from(100));
                         "test"
                     }))
                     .service(web::resource("/test/").to(|| async move { "no-changes-in-session" })),
@@ -353,7 +207,55 @@ pub mod test_helpers {
             assert_eq!(cookie_2.max_age(), Some(session_ttl));
         }
 
-        pub(super) async fn guard<F, Store>(store_builder: F, policy: CookieContentSecurity)
+        pub(super) async fn lifecycle<F, Store>(store_builder: F)
+        where
+            Store: SessionStore + 'static,
+            F: Fn() -> Store + Clone + Send + 'static,
+        {
+            let session_ttl = time::Duration::seconds(60);
+            let app = test::init_service(
+                App::new()
+                    .wrap(
+                        SessionMiddleware::builder(store_builder(), key())
+                            .session_ttl(session_ttl)
+                            .build(),
+                    )
+                    .service(web::resource("/").to(|ses: Session| async move {
+                        ses.insert("counter", Value::from(100));
+                        "test"
+                    }))
+                    .service(
+                        web::resource("/switch_lifecycle/").to(|ses: Session| async move {
+                            ses.insert("counter", Value::from(100));
+                            ses.set_lifecycle(SessionLifecycle::BrowserSession);
+                            "ok"
+                        }),
+                    ),
+            )
+            .await;
+
+            // Should set a persistent session cookie
+            let request = test::TestRequest::get().to_request();
+            let response = app.call(request).await.unwrap();
+            let cookie_1 = response.get_cookie("id").expect("Cookie is set");
+            assert_eq!(cookie_1.max_age(), Some(session_ttl));
+
+            // Switch session lifecycle
+            let request = test::TestRequest::with_uri("/switch_lifecycle/")
+                .cookie(cookie_1.clone())
+                .to_request();
+            let response = app.call(request).await.unwrap();
+            let cookie_1 = response.get_cookie("id").expect("Cookie is set");
+            assert!(response.response().status().is_success());
+
+            // Should set a browser session cookie
+            let request = test::TestRequest::get().cookie(cookie_1).to_request();
+            let response = app.call(request).await.unwrap();
+            let cookie_2 = response.get_cookie("id").expect("Cookie is set");
+            assert_eq!(cookie_2.max_age(), None);
+        }
+
+        pub(super) async fn guard<F, Store>(store_builder: F)
         where
             Store: SessionStore + 'static,
             F: Fn() -> Store + Clone + Send + 'static,
@@ -363,10 +265,7 @@ pub mod test_helpers {
                     .wrap(
                         SessionMiddleware::builder(store_builder(), key())
                             .cookie_name("test-session".into())
-                            .cookie_content_security(policy)
-                            .session_lifecycle(
-                                PersistentSession::default().session_ttl(time::Duration::days(7)),
-                            )
+                            .session_ttl(time::Duration::days(7))
                             .build(),
                     )
                     .wrap(middleware::Logger::default())
@@ -441,7 +340,6 @@ pub mod test_helpers {
         pub(super) async fn complex_workflow<F, Store>(
             store_builder: F,
             is_invalidation_supported: bool,
-            policy: CookieContentSecurity,
         ) where
             Store: SessionStore + 'static,
             F: Fn() -> Store + Clone + Send + 'static,
@@ -452,10 +350,7 @@ pub mod test_helpers {
                     .wrap(
                         SessionMiddleware::builder(store_builder(), key())
                             .cookie_name("test-session".into())
-                            .cookie_content_security(policy)
-                            .session_lifecycle(
-                                PersistentSession::default().session_ttl(session_ttl),
-                            )
+                            .session_ttl(session_ttl)
                             .build(),
                     )
                     .wrap(middleware::Logger::default())

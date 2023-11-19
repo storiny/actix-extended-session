@@ -1,8 +1,6 @@
+use crate::config::SessionLifecycle;
 use crate::{
-    config::{
-        self, Configuration, CookieConfiguration, CookieContentSecurity, SessionMiddlewareBuilder,
-        TtlExtensionPolicy,
-    },
+    config::{self, Configuration, CookieConfiguration, SessionMiddlewareBuilder},
     storage::{LoadError, SessionKey, SessionStore},
     Session, SessionStatus,
 };
@@ -33,15 +31,6 @@ use std::{convert::TryInto, fmt, future::Future, pin::Pin, rc::Rc};
 /// - an instance of the session storage backend you wish to use (i.e. an implementation of
 ///   [`SessionStore`]);
 /// - a secret key, to sign or encrypt the content of client-side session cookie.
-///
-/// # How did we choose defaults?
-/// You should not regret adding `actix-session` to your dependencies and going to production using
-/// the default configuration. That is why, when in doubt, we opt to use the most secure option for
-/// each configuration parameter.
-///
-/// We expose knobs to change the default to suit your needs—i.e., if you know what you are doing,
-/// we will not stop you. But being a subject-matter expert should not be a requirement to deploy
-/// reasonably secure implementation of sessions.
 ///
 /// # Examples
 /// ```no_run
@@ -79,7 +68,6 @@ use std::{convert::TryInto, fmt, future::Future, pin::Pin, rc::Rc};
 /// ```no_run
 /// use actix_web::{App, cookie::{Key, time}, Error, HttpResponse, HttpServer, web};
 /// use actix_extended_session::{Session, SessionMiddleware, storage::CookieSessionStore};
-/// use actix_extended_session::config::PersistentSession;
 ///
 /// // The secret key would usually be read from a configuration file/environment variables.
 /// fn get_secret_key() -> Key {
@@ -98,10 +86,7 @@ use std::{convert::TryInto, fmt, future::Future, pin::Pin, rc::Rc};
 ///                     CookieSessionStore::default(),
 ///                     secret_key.clone()
 ///                 )
-///                 .session_lifecycle(
-///                     PersistentSession::default()
-///                         .session_ttl(time::Duration::days(5))
-///                 )
+///                 .session_ttl(time::Duration::days(5))
 ///                 .build(),
 ///             )
 ///             .default_service(web::to(|| HttpResponse::Ok())))
@@ -184,6 +169,8 @@ fn e500<E: fmt::Debug + fmt::Display + 'static>(err: E) -> actix_web::Error {
     .into()
 }
 
+static LIFECYCLE_KEY: &str = "lifecycle";
+
 #[doc(hidden)]
 #[non_exhaustive]
 pub struct InnerSessionMiddleware<S, Store: SessionStore + 'static> {
@@ -214,11 +201,28 @@ where
             let session_key = extract_session_key(&req, &configuration.cookie);
             let (session_key, session_state) =
                 load_session_state(session_key, storage_backend.as_ref()).await?;
+            let mut session_lifecycle = SessionLifecycle::PersistentSession;
 
-            Session::set_session(&mut req, session_state);
+            if let Some(lifecycle) = session_state.get(LIFECYCLE_KEY) {
+                let lifecycle = lifecycle
+                    .as_i64()
+                    .unwrap_or(SessionLifecycle::PersistentSession as i64);
+
+                session_lifecycle = SessionLifecycle::from_i32(lifecycle as i32);
+            }
+
+            Session::set_session(&mut req, session_state, session_lifecycle);
 
             let mut res = service.call(req).await?;
-            let (status, session_state) = Session::get_changes(&mut res);
+            let (lifecycle, status, mut session_state) = Session::get_changes(&mut res);
+
+            // We only insert the lifecycle key into the session if it already exist or is non-empty to avoid creating sessions on every request.
+            if session_key.is_some() || !session_state.is_empty() {
+                session_state.insert(
+                    LIFECYCLE_KEY.to_string(),
+                    Value::from(lifecycle.clone() as i32),
+                );
+            }
 
             match session_key {
                 None => {
@@ -234,6 +238,7 @@ where
                             res.response_mut().head_mut(),
                             session_key,
                             &configuration.cookie,
+                            lifecycle,
                         )
                         .map_err(e500)?;
                     }
@@ -255,6 +260,7 @@ where
                                 res.response_mut().head_mut(),
                                 session_key,
                                 &configuration.cookie,
+                                lifecycle,
                             )
                             .map_err(e500)?;
                         }
@@ -281,30 +287,12 @@ where
                                 res.response_mut().head_mut(),
                                 session_key,
                                 &configuration.cookie,
+                                lifecycle,
                             )
                             .map_err(e500)?;
                         }
 
-                        SessionStatus::Unchanged => {
-                            if matches!(
-                                configuration.ttl_extension_policy,
-                                TtlExtensionPolicy::OnEveryRequest
-                            ) {
-                                storage_backend
-                                    .update_ttl(&session_key, &configuration.session.state_ttl)
-                                    .await
-                                    .map_err(e500)?;
-
-                                if configuration.cookie.max_age.is_some() {
-                                    set_session_cookie(
-                                        res.response_mut().head_mut(),
-                                        session_key,
-                                        &configuration.cookie,
-                                    )
-                                    .map_err(e500)?;
-                                }
-                            }
-                        }
+                        SessionStatus::Unchanged => {}
                     };
                 }
             }
@@ -328,10 +316,7 @@ fn extract_session_key(req: &ServiceRequest, config: &CookieConfiguration) -> Op
     let mut jar = CookieJar::new();
     jar.add_original(session_cookie.clone());
 
-    let verification_result = match config.content_security {
-        CookieContentSecurity::Signed => jar.signed(&config.key).get(&config.name),
-        CookieContentSecurity::Private => jar.private(&config.key).get(&config.name),
-    };
+    let verification_result = jar.signed(&config.key).get(&config.name);
 
     if verification_result.is_none() {
         tracing::warn!(
@@ -402,6 +387,7 @@ fn set_session_cookie(
     response: &mut ResponseHead,
     session_key: SessionKey,
     config: &CookieConfiguration,
+    session_lifecycle: SessionLifecycle,
 ) -> Result<(), anyhow::Error> {
     let value: String = session_key.into();
     let mut cookie = Cookie::new(config.name.clone(), value);
@@ -411,8 +397,11 @@ fn set_session_cookie(
     cookie.set_same_site(config.same_site);
     cookie.set_path(config.path.clone());
 
-    if let Some(max_age) = config.max_age {
-        cookie.set_max_age(max_age);
+    // Check for a persistent session.
+    if session_lifecycle == SessionLifecycle::PersistentSession {
+        if let Some(max_age) = config.max_age {
+            cookie.set_max_age(max_age);
+        }
     }
 
     if let Some(ref domain) = config.domain {
@@ -420,12 +409,9 @@ fn set_session_cookie(
     }
 
     let mut jar = CookieJar::new();
-    match config.content_security {
-        CookieContentSecurity::Signed => jar.signed_mut(&config.key).add(cookie),
-        CookieContentSecurity::Private => jar.private_mut(&config.key).add(cookie),
-    }
+    jar.signed_mut(&config.key).add(cookie);
 
-    // set cookie
+    // Set cookie
     let cookie = jar.delta().next().unwrap();
     let val = HeaderValue::from_str(&cookie.encoded().to_string())
         .context("Failed to attach a session cookie to the outgoing response")?;

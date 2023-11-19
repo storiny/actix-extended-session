@@ -1,3 +1,4 @@
+use crate::config::SessionLifecycle;
 use actix_utils::future::{ready, Ready};
 use actix_web::{
     body::BoxBody,
@@ -5,7 +6,7 @@ use actix_web::{
     error::Error,
     FromRequest, HttpMessage, HttpRequest, HttpResponse, ResponseError,
 };
-use anyhow::anyhow;
+use anyhow::Context;
 use derive_more::{Display, From};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -72,6 +73,7 @@ pub enum SessionStatus {
 struct SessionInner {
     state: Map<String, Value>,
     status: SessionStatus,
+    lifecycle: SessionLifecycle,
 }
 
 impl Session {
@@ -80,13 +82,18 @@ impl Session {
     /// It returns an error if it fails to parse as `T` the JSON value associated with `key`.
     pub fn get<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>, SessionGetError> {
         if let Some(value) = self.0.borrow().state.get(key) {
-            let parsed_value = serde_json::from_value::<T>(value.clone());
-
-            if parsed_value.is_err() {
-                return Err(SessionGetError(anyhow!("Unable to deserialize the value")));
-            }
-
-            Ok(Some(parsed_value.unwrap()))
+            Ok(Some(
+                serde_json::from_value::<T>(value.clone())
+                    .with_context(|| {
+                        format!(
+                            "Failed to deserialize the JSON-encoded session data attached to key \
+                            `{}` as a `{}` type",
+                            key,
+                            std::any::type_name::<T>()
+                        )
+                    })
+                    .map_err(SessionGetError)?,
+            ))
         } else {
             Ok(None)
         }
@@ -161,38 +168,66 @@ impl Session {
         }
     }
 
+    /// Sets the lifecycle of the session cookie.
+    pub fn set_lifecycle(&self, next_lifecycle: SessionLifecycle) {
+        let mut inner = self.0.borrow_mut();
+
+        if inner.status != SessionStatus::Purged {
+            if inner.status != SessionStatus::Renewed {
+                inner.status = SessionStatus::Changed;
+            }
+
+            inner.lifecycle = next_lifecycle;
+        }
+    }
+
+    /// Returns the lifecycle of the session cookie.
+    pub fn get_lifecycle(&self) -> SessionLifecycle {
+        let inner = self.0.borrow_mut();
+        inner.lifecycle.to_owned()
+    }
+
     /// Adds the given key-value pairs to the session on the request.
     ///
-    /// Values that match keys already existing on the session will be overwritten. Values should
-    /// already be JSON serialized.
+    /// Values that match keys already existing on the session will be overwritten.
     #[allow(clippy::needless_pass_by_ref_mut)]
     pub(crate) fn set_session(
         req: &mut ServiceRequest,
         data: impl IntoIterator<Item = (String, Value)>,
+        lifecycle: SessionLifecycle,
     ) {
         let session = Session::get_session(&mut req.extensions_mut());
         let mut inner = session.0.borrow_mut();
         inner.state.extend(data);
+        inner.lifecycle = lifecycle;
     }
 
-    /// Returns session status and iterator of key-value pairs of changes.
+    /// Returns session lifecycle, session status, and iterator of key-value pairs of changes.
     ///
     /// This is a destructive operation - the session state is removed from the request extensions
-    /// typemap, leaving behind a new empty map. It should only be used when the session is being
+    /// type-map, leaving behind a new empty map. It should only be used when the session is being
     /// finalised (i.e. in `SessionMiddleware`).
     #[allow(clippy::needless_pass_by_ref_mut)]
     pub(crate) fn get_changes<B>(
         res: &mut ServiceResponse<B>,
-    ) -> (SessionStatus, Map<String, Value>) {
+    ) -> (SessionLifecycle, SessionStatus, Map<String, Value>) {
         if let Some(s_impl) = res
             .request()
             .extensions()
             .get::<Rc<RefCell<SessionInner>>>()
         {
             let state = mem::take(&mut s_impl.borrow_mut().state);
-            (s_impl.borrow().status.clone(), state)
+            (
+                s_impl.borrow().lifecycle.clone(),
+                s_impl.borrow().status.clone(),
+                state,
+            )
         } else {
-            (SessionStatus::Unchanged, Map::new())
+            (
+                SessionLifecycle::PersistentSession,
+                SessionStatus::Unchanged,
+                Map::new(),
+            )
         }
     }
 
