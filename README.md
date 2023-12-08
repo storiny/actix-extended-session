@@ -1,5 +1,8 @@
 # actix-extended-session
 
+> [!NOTE]  
+> This crate is no longer used at Storiny. Please refer to the original [repository](https://github.com/actix/actix-extras/tree/master/actix-session).
+
 > Extended session management for Actix Web.
 
 A modified instance of [actix-session](https://github.com/actix/actix-extras/tree/master/actix-session).
